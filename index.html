@@ -90,6 +90,10 @@
   .ptag{color:#9ff3ff;font-weight:700;font-size:18px}
   #shopinv{margin-top:14px;font-size:15px;color:#cfc2e8;font-weight:600}
   .keycap{display:inline-block;background:rgba(159,243,255,.15);border:1px solid rgba(159,243,255,.5);border-radius:5px;padding:0 7px;font-size:13px;color:#9ff3ff;font-weight:700}
+  #arenabar{left:50%;top:60px;transform:translateX(-50%);width:340px;text-align:center}
+  #arenaname{font-weight:700;font-size:16px;color:#ff8a8a;text-shadow:0 0 8px #000;margin-bottom:4px}
+  #arenahpwrap{width:340px;height:14px;background:rgba(0,0,0,.5);border:2px solid rgba(255,120,120,.6);border-radius:8px;overflow:hidden}
+  #arenahp{height:100%;width:100%;background:linear-gradient(90deg,#c0392b,#ff7766);transition:width .12s}
 
   /* case reel */
   #reelwrap{width:640px;max-width:88vw;overflow:hidden;border:2px solid rgba(255,255,255,.25);border-radius:12px;background:rgba(0,0,0,.45);position:relative;margin:18px auto}
@@ -119,6 +123,7 @@
 <div class="hud" id="currency">✦ 0</div>
 <div class="hud" id="tokens">🎖 0</div>
 <div class="hud" id="waveinfo">WAVE 1</div>
+<div class="hud" id="arenabar" style="display:none"><div id="arenaname"></div><div id="arenahpwrap"><div id="arenahp"></div></div></div>
 <div class="hud" id="vitals">
   <div id="hptext">❤ 100</div>
   <div id="hpbar"><div id="hpfill"></div></div>
@@ -170,6 +175,7 @@
     <div class="cases" id="skinlist" style="display:grid;grid-template-columns:repeat(5,1fr);gap:10px;margin:10px 0 14px"></div>
     <div class="sub" id="saveinfo" style="font-size:15px;margin-bottom:14px"></div>
     <button class="btn" id="startbtn">▶ ENTER BATTLE (ENTER)</button>
+    <button class="btn small" id="dailybtn" style="background:linear-gradient(90deg,#e8a23a,#d7603a);margin-left:10px">🪙 DAILY SHOP (Y)</button>
     <button class="btn small" id="newgamebtn" style="background:rgba(255,255,255,.14);margin-left:10px">🗑 NEW GAME (N)</button>
   </div>
 </div>
@@ -213,6 +219,17 @@
     <div class="sub" id="victorysub"></div>
     <div id="victorystats" style="font-size:20px;font-weight:600;color:#e8defc;line-height:1.8;margin:10px 0 20px"></div>
     <button class="btn" onclick="location.reload()">CONTINUE (ENTER)</button>
+  </div>
+</div>
+
+<!-- DAILY SHOP -->
+<div class="overlay" id="daily" style="display:none">
+  <div class="panel center">
+    <h2>🪙 DAILY SHOP</h2>
+    <div class="sub">Limited deals · rotates every day · press the <span class="keycap">key</span> to buy · <span id="dailybal"></span></div>
+    <div class="cases" id="dailylist" style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin:12px 0"></div>
+    <div id="dailyresult" class="sub" style="min-height:24px;color:#9ff3ff"></div>
+    <button class="btn" id="closedaily">DONE (Y / ESC)</button>
   </div>
 </div>
 
@@ -349,6 +366,7 @@ const ENEMY_TYPES = {
   oni:   {hp:120, speed:3.4, dmg:18, reach:2.0, reward:32, scale:1.4, color:0xe05555, fly:false, ranged:false},
   yokai: {hp:65,  speed:3.8, dmg:12, reach:0,   reward:26, scale:1,   color:0xb48ae0, fly:true,  ranged:true},
   boss:  {hp:1100,speed:2.6, dmg:34, reach:3.0, reward:450,scale:3,   color:0x8a2be2, fly:false, ranged:false},
+  duel:  {hp:1,   speed:0,   dmg:0,  reach:0,   reward:0,  scale:1,   color:0xc0392b, fly:false, ranged:true},
 };
 
 /* ---------------- GAME STATE ---------------- */
@@ -374,6 +392,7 @@ const state = {
   view:'tp', scoped:false,               // tp/fp camera · scope held (I)
   special:null,                          // today's special-mode modifier
   streetT:30, chestT:3, chestsOpened:0,  // street scavenge timers
+  arena:null, shake:0,                   // 1v1 duel state · camera shake
 };
 
 /* ---------------- SAVE SYSTEM (localStorage) ---------------- */
@@ -383,7 +402,8 @@ let save={crystals:0, totalEarned:0, inventory:null, equipped:0, best:{}, map:'s
           world:1, perks:[], designs:[], design:null, squad:1,
           stash:[], diff:'medium',
           settings:{sens:1, vol:1, fov:70, camDist:5.6},
-          abilityOwned:['nova','dash'], abilQ:'nova', abilE:'dash'};
+          abilityOwned:['nova','dash'], abilQ:'nova', abilE:'dash',
+          daily:{date:null, bought:[]}, arenaWins:0};
 try{ const s=JSON.parse(localStorage.getItem(SAVE_KEY)); if(s&&typeof s==='object') save=Object.assign(save,s); }catch(e){}
 
 /* ---------------- PERKS (permanent features from Treasure Cases) ---------------- */
@@ -1055,6 +1075,8 @@ function spawnEnemy(type, sopts={}){
   }
   const D=DIFFS[save.diff||'medium'];          // difficulty scaling
   e.hp*=D.hp; e.maxHp*=D.hp; e.dmg=Math.round(e.dmg*D.dmg);
+  e.scaleVec=g.scale.clone();                   // remember intended size for spawn-pop & squash
+  e.spawnT=.3; g.scale.copy(e.scaleVec).multiplyScalar(.25);   // pop in
   hb.userData.enemy=e;
   enemies.push(e);
 }
@@ -1221,6 +1243,8 @@ function killEnemy(e, w, opts={}){
   if(e.dead) return; e.dead=true;
   scene.remove(e.group);
   const idx=enemies.indexOf(e); if(idx>=0) enemies.splice(idx,1);
+  if(e.duel){ sfx.kill(); deathPoof(e.group.position.clone().setY(1), 0xff5d5d); arenaRoundEnd('you'); return; }
+  deathPoof(e.group.position.clone().setY(Math.max(e.group.position.y,1)), e.mat?e.mat.color.getHex():0xffffff);
   state.kills++;
   if(!opts.bot){ state.combo++; state.comboT=save.skin==='idol'?6:4; updateCombo(); }   // 🎤 Star Power: longer combos
   let reward=e.reward*(1+Math.min(state.combo,15)*.08);   // kill streaks multiply crystals
@@ -1346,6 +1370,7 @@ function meleeStrike(dmg, range, frontalOnly, kbPow, opts={}){
 }
 function finisherText(t){
   const d=$('finisher'); d.textContent=t; d.style.opacity=1;
+  state.shake=Math.max(state.shake,.22);    // a little punch on finishers/abilities
   clearTimeout(finisherText._t);
   finisherText._t=setTimeout(()=>d.style.opacity=0,900);
 }
@@ -1598,6 +1623,11 @@ function updateWaveHUD(){
   }
   if(state.mode==='streets'){
     $('waveinfo').textContent=`🏚️ THREAT ${state.wave} · ${enemies.length} monsters · 📦 ${state.chestsOpened||0} chests looted`;
+    return;
+  }
+  if(state.mode==='arena'){
+    const a=state.arena||{round:1,you:0,foe:0};
+    $('waveinfo').textContent=`🤺 ROUND ${a.round} · You ${a.you} – ${a.foe} Rival`;
     return;
   }
   const stagePrefix = state.mode==='world' ? `🌍 S${state.stage} · ` : '';
@@ -1909,7 +1939,13 @@ addEventListener('keydown',e=>{
     if(state.phase==='shop') closeShop();
     else if(state.phase==='stash') closeStash();
     else if(state.phase==='settings') closeSettings();
+    else if(state.phase==='daily') closeDaily();
     else if(state.phase==='playing'||state.phase==='paused') togglePause();
+    return;
+  }
+  if(state.phase==='daily'){
+    if(/^Digit[1-4]$/.test(e.code)) buyDaily(+e.code.slice(5)-1);
+    if(e.code==='KeyY') closeDaily();
     return;
   }
   if(e.code==='KeyO'){
@@ -1953,6 +1989,7 @@ addEventListener('keydown',e=>{
     if(e.code==='KeyM') cycleMode();
     if(/^Digit[5-9]$/.test(e.code)) skinAction(Object.keys(SKINS)[+e.code.slice(5)-5]);
     if(e.code==='KeyD') cycleDiff();
+    if(e.code==='KeyY') openDaily();
     if(e.code==='KeyN') newGame();
     return;
   }
@@ -1985,6 +2022,7 @@ const MODES_UI=[
   {id:'world', icon:'🌍', name:'WORLD', sub:()=> (save.world||1)>10 ? 'Campaign 🏆 CLEARED — replay stage 10' : `Campaign · next: stage ${Math.min(save.world||1,10)}/10`},
   {id:'battleground', icon:'⚔️', name:'BATTLEGROUND', sub:()=>'Endless waves on your chosen map'},
   {id:'bossrush', icon:'👹', name:'BOSS RUSH', sub:()=>'Warlords only, back to back — more each round'},
+  {id:'arena', icon:'🤺', name:'1v1 ARENA', sub:()=>`Duel strong rivals · best of 3${save.arenaWins?` · ${save.arenaWins}W`:''}`},
   {id:'streets', icon:'🏚️', name:'STREET SCAVENGE', sub:()=>'Roam the city · crack open chests · endless monsters'},
   {id:'special', icon:'🎪', name:"TODAY'S SPECIAL", sub:()=>SPECIALS[todaySpecial()].name+' — rotates daily!'},
   {id:'training', icon:'🎯', name:'AIM TRAINING', sub:()=>'Target range · live accuracy stats'},
@@ -2086,8 +2124,13 @@ function startGame(){
   state.hp=state.maxHp;
   applySkin(save.skin);
   buildGunModel(); updateAmmoHUD(); updateHpHUD(); updateCrystalHUD(); updateTokenHUD(); buildShop();
-  for(let i=0;i<state.squad-1;i++) spawnBot(i);      // AI lobby teammates
-  if(state.mode==='training'){
+  $('arenabar').style.display='none';
+  if(state.mode!=='arena') for(let i=0;i<state.squad-1;i++) spawnBot(i);   // AI lobby teammates (not in 1v1)
+  if(state.mode==='arena'){
+    state.arena={round:1, you:0, foe:0, active:true, foeName:''};
+    banner('🤺 1v1 ARENA','Best of 3 — defeat your rival!',3500);
+    sfx.wave(); spawnDuelist(); updateWaveHUD();
+  } else if(state.mode==='training'){
     for(let i=0;i<6;i++) spawnTarget();
     for(let i=0;i<3;i++) spawnDummy();
     banner('🎯 TRAINING RANGE','Shoot the orbs · strike the dummies with melee & combos · ESC → MAIN MENU to leave',4500);
@@ -2134,9 +2177,11 @@ function damagePlayer(amount){
   }
   if(state.combo>0){ state.combo=0; state.comboT=0; updateCombo(); }
   state.hp-=amount; updateHpHUD(); flashVignette(); sfx.hurt();
+  state.shake=Math.min(.6, .12+amount*0.012);    // camera shake scales with the hit
   if(state.hp<=0) die();
 }
 function die(){
+  if(state.mode==='arena' && state.arena && state.arena.active){ arenaRoundEnd('foe'); return; }
   state.phase='dead';
   saveGame();
   $('deathstats').innerHTML=
@@ -2151,6 +2196,223 @@ function bestWeapon(){
   const order=['common','uncommon','rare','epic','legendary'];
   return state.inventory.filter(w=>!w.item).sort((a,b)=>order.indexOf(b.rarity)-order.indexOf(a.rarity))[0]
     || makeWeapon('pistol','common','Academy Pistol','none');
+}
+
+/* ---------------- DAILY SHOP (seeded by date, rotates daily) ---------------- */
+function hashStr(s){ let h=2166136261; for(let i=0;i<s.length;i++){ h^=s.charCodeAt(i); h=Math.imul(h,16777619);} return h>>>0; }
+function mulberry32(a){ return function(){ a|=0; a=a+0x6D2B79F5|0; let t=Math.imul(a^a>>>15,1|a); t=t+Math.imul(t^t>>>7,61|t)^t; return ((t^t>>>14)>>>0)/4294967296; }; }
+function dateKey(){ const d=new Date(); return d.getFullYear()+'-'+(d.getMonth()+1)+'-'+d.getDate(); }
+function ensureDaily(){
+  if(!save.daily) save.daily={date:null,bought:[]};
+  if(save.daily.date!==dateKey()){ save.daily.date=dateKey(); save.daily.bought=[]; }
+}
+function dailyDeals(){
+  const rng=mulberry32(hashStr(dateKey()));
+  const rp=arr=>arr[Math.floor(rng()*arr.length)];
+  const guns=Object.keys(ARCHETYPES);
+  const wr=rp(['rare','rare','epic','epic','legendary']);
+  const wa=rp(guns);
+  const ab= rng()<0.6 ? rp(ABILITY_KEYS) : 'none';
+  const weapon=makeWeapon(wa, wr, rp(WEAPON_NAMES[wa]), ab);
+  const skinPool=Object.keys(SKINS).filter(id=>SKINS[id].cost>0);
+  const skinId=rp(skinPool);
+  const abilId=rp(Object.keys(ABILITY_DEFS));
+  const caseDef=rp(CASES);
+  return [
+    {slot:0, kind:'weapon', icon:weapon.icon, title:weapon.name,
+     desc:`${wr.toUpperCase()} ${wa}${ab!=='none'?' · '+ABILITIES[ab].label:''}`,
+     cur:'✦', price:Math.round(RARITIES[wr].value*0.9), w:weapon},
+    {slot:1, kind:'skin', icon:SKINS[skinId].icon, title:SKINS[skinId].name,
+     desc:'Skin · 40% off', cur:'🎖', price:Math.max(1,Math.ceil(SKINS[skinId].cost*0.6)), id:skinId},
+    {slot:2, kind:'abil', icon:ABILITY_DEFS[abilId].icon, title:ABILITY_DEFS[abilId].name,
+     desc:ABILITY_DEFS[abilId].desc, cur:'✦', price:400, id:abilId},
+    {slot:3, kind:'case', icon:caseDef.icon, title:caseDef.name,
+     desc:'Mystery case · 25% off', cur:'✦', price:Math.round(caseDef.price*0.75), id:caseDef.id},
+  ];
+}
+function grantLootToSave(it){
+  if(it.kind==='weapon'){
+    if((save.inventory||(save.inventory=[])).length<10) save.inventory.push(it.w);
+    else (save.stash||(save.stash=[])).push(it.w);
+    return `${it.w.icon} ${it.w.name} → your arsenal!`;
+  }
+  if(it.kind==='skin'){
+    if((save.skins||[]).includes(it.id)){ save.tokens=(save.tokens||0)+3; return 'Duplicate skin → +3 🎖'; }
+    save.skins.push(it.id); return `${SKINS[it.id].icon} ${SKINS[it.id].name} skin unlocked!`;
+  }
+  if(it.kind==='abil'){
+    if((save.abilityOwned||[]).includes(it.id)){ save.crystals=(save.crystals||0)+150; return 'Duplicate → +150 ✦'; }
+    (save.abilityOwned||(save.abilityOwned=['nova','dash'])).push(it.id);
+    return `${ABILITY_DEFS[it.id].icon} ${ABILITY_DEFS[it.id].name} ability learned!`;
+  }
+  if(it.kind==='design'){
+    if((save.designs||[]).includes(it.d.name)){ save.crystals=(save.crystals||0)+150; return 'Duplicate → +150 ✦'; }
+    save.designs.push(it.d.name); save.design={name:it.d.name,color:it.d.color}; return `🎨 ${it.d.name} design!`;
+  }
+  if(it.kind==='perk'){
+    if((save.perks||[]).includes(it.id)){ save.crystals=(save.crystals||0)+300; return 'Duplicate → +300 ✦'; }
+    save.perks.push(it.id); return `${PERKS[it.id].icon} ${PERKS[it.id].name} perk!`;
+  }
+}
+function renderDaily(){
+  ensureDaily();
+  $('dailybal').innerHTML=`<b style="color:#9ff3ff">✦ ${Math.floor(save.crystals||0)}</b> · <b style="color:#ffd54f">🎖 ${save.tokens||0}</b>`;
+  const deals=dailyDeals(), list=$('dailylist'); list.innerHTML='';
+  deals.forEach(d=>{
+    const bought=save.daily.bought.includes(d.slot);
+    const owned=(d.kind==='skin'&&(save.skins||[]).includes(d.id))||(d.kind==='abil'&&(save.abilityOwned||[]).includes(d.id));
+    const bal=d.cur==='🎖'?(save.tokens||0):(save.crystals||0);
+    const afford=bal>=d.price;
+    const card=document.createElement('div'); card.className='casecard'; card.style.padding='12px 8px';
+    if(bought) card.style.opacity=.45;
+    card.innerHTML=`<div class="cname"><span class="keycap">${d.slot+1}</span></div>
+      <div class="cicon">${d.icon}</div>
+      <div style="font-weight:700;font-size:14px">${d.title}</div>
+      <div class="odds" style="margin:4px 0">${d.desc}</div>
+      <div class="ptag">${d.cur} ${d.price}</div>
+      <div class="odds" style="margin-top:4px">${bought?'<b style="color:#ffb7d5">SOLD TODAY</b>':owned?'owned (buy = bonus)':afford?'<b style="color:#9ff3ff">available</b>':'<b style="color:#ff8a8a">need more</b>'}</div>`;
+    card.onclick=()=>buyDaily(d.slot);
+    list.appendChild(card);
+  });
+}
+function buyDaily(slot){
+  ensureDaily();
+  if(save.daily.bought.includes(slot)) return;
+  const d=dailyDeals()[slot]; if(!d) return;
+  const bal=d.cur==='🎖'?(save.tokens||0):(save.crystals||0);
+  if(bal<d.price) return;
+  if(d.cur==='🎖') save.tokens-=d.price; else save.crystals=(save.crystals||0)-d.price;
+  let msg;
+  if(d.kind==='weapon') msg=grantLootToSave({kind:'weapon', w:d.w});
+  else if(d.kind==='skin'){ save.skins=save.skins||['guardian']; if(!save.skins.includes(d.id)){ save.skins.push(d.id); save.skin=d.id; applySkin(d.id);} msg=`${SKINS[d.id].icon} ${SKINS[d.id].name} equipped!`; }
+  else if(d.kind==='abil') msg=grantLootToSave({kind:'abil', id:d.id});
+  else if(d.kind==='case'){
+    const c=CASES.find(x=>x.id===d.id);
+    let it = c.ability ? rollAbilityItem() : c.treasure ? rollTreasure(c.odds) : {kind:'weapon', w:rollWeapon(c.odds)};
+    msg='Case opened — '+grantLootToSave(it);
+  }
+  save.daily.bought.push(slot);
+  sfx.reveal('epic');
+  try{ localStorage.setItem(SAVE_KEY, JSON.stringify(save)); }catch(e){}
+  $('dailyresult').textContent='✅ '+msg;
+  renderDaily();
+}
+function openDaily(){ if(state.phase!=='start') return; state.phase='daily'; $('dailyresult').textContent=''; $('daily').style.display='flex'; renderDaily(); }
+function closeDaily(){ if(state.phase!=='daily') return; $('daily').style.display='none'; state.phase='start'; buildStartUI(); }
+$('closedaily').onclick=closeDaily;
+$('dailybtn').onclick=openDaily;
+
+/* ---------------- 1v1 ARENA (duel strong rivals, best of 3) ---------------- */
+const DUEL_NAMES=['Ryu','Kasumi','Jin','Mai','Akuma','Sakura','Noctis','Vega'];
+function deathPoof(pos,color){
+  const ring=new THREE.Mesh(new THREE.RingGeometry(.3,.6,20),
+    new THREE.MeshBasicMaterial({color,transparent:true,opacity:.9,side:THREE.DoubleSide}));
+  ring.rotation.x=-Math.PI/2; ring.position.copy(pos); ring.position.y=.3;
+  scene.add(ring); fxRings.push({mesh:ring,t:0,rate:9,life:.4});
+}
+function spawnDuelist(){
+  const round=state.arena.round;
+  state.arena.foeName=DUEL_NAMES[Math.floor(rand(0,DUEL_NAMES.length))];
+  const g=new THREE.Group();
+  const torso=new THREE.Mesh(new THREE.BoxGeometry(.5,1.0,.3), new THREE.MeshLambertMaterial({color:0xc0392b}));
+  torso.position.y=1.0;
+  const head=new THREE.Mesh(new THREE.SphereGeometry(.3,12,10), new THREE.MeshLambertMaterial({color:0xffe0cf}));
+  head.position.y=1.78;
+  const hair=new THREE.Mesh(new THREE.SphereGeometry(.33,10,8), new THREE.MeshLambertMaterial({color:0x14141c}));
+  hair.position.set(0,1.85,.04);
+  const legL=new THREE.Mesh(new THREE.BoxGeometry(.17,.6,.17), new THREE.MeshLambertMaterial({color:0x2b2b33})); legL.position.set(-.13,.3,0);
+  const legR=legL.clone(); legR.position.x=.13;
+  const gun=new THREE.Mesh(new THREE.BoxGeometry(.1,.12,.5), new THREE.MeshLambertMaterial({color:0x333333})); gun.position.set(.3,1.15,-.25);
+  g.add(torso,head,hair,legL,legR,gun);
+  const ang=rand(0,Math.PI*2);
+  g.position.set(clamp(playerPos.x+Math.cos(ang)*16,-ARENA+4,ARENA-4),0,clamp(playerPos.z+Math.sin(ang)*16,-ARENA+4,ARENA-4));
+  g.scale.setScalar(.2);
+  scene.add(g);
+  const hb=new THREE.Mesh(new THREE.BoxGeometry(1.0,2.2,1.0), new THREE.MeshBasicMaterial({visible:false}));
+  hb.position.y=1.0; g.add(hb);
+  const hp=(320+round*150+bestOverall()*6)*DIFFS[save.diff||'medium'].hp;
+  const e={duel:true, type:'duel', group:g, hitbox:hb, mat:torso.material, legL, legR,
+    hp, maxHp:hp, fly:false, bodyH:1.1, scale:1, reward:0, dead:false,
+    fireCd:1.2, dodgeCd:rand(1.5,3), dodgeT:0, dodgeV:new THREE.Vector3(), strafe:rand(0,7),
+    walkT:0, flashT:0, slowT:0, burnT:0, kb:new THREE.Vector3(), spawnT:.4};
+  hb.userData.enemy=e;
+  enemies.push(e);
+  $('arenabar').style.display='block';
+  $('arenaname').textContent='🤺 '+state.arena.foeName+' — Round '+round;
+  $('arenahp').style.width='100%';
+}
+function updateDuelist(e,dt,now){
+  const epos=e.group.position;
+  if(e.spawnT>0){ e.spawnT-=dt; e.group.scale.setScalar(.2+.8*clamp(1-e.spawnT/.4,0,1)); }
+  if(e.flashT>0){ e.flashT-=dt; e.mat.emissive.setHex(0xffffff); } else e.mat.emissive.setHex(0x330000);
+  if(e.slowT>0) e.slowT-=dt;
+  if(e.burnT>0){ e.burnT-=dt; e.hp-=8*dt; if(e.hp<=0){ killEnemy(e,null); return; } }
+  if(e.kb.lengthSq()>0.01){ epos.add(e.kb.clone().multiplyScalar(dt)); e.kb.multiplyScalar(Math.max(0,1-5*dt)); collide(epos,.6); }
+  const to=playerPos.clone().sub(epos); to.y=0; const dist=to.length(); to.normalize();
+  e.strafe+=dt;
+  const slow=e.slowT>0?.5:1;
+  e.dodgeCd-=dt;
+  if(e.dodgeCd<=0 && dist<18){ e.dodgeCd=rand(2,3.5); e.dodgeT=.3; e.dodgeV.set(-to.z,0,to.x).multiplyScalar((Math.random()<.5?1:-1)*11); }
+  if(e.dodgeT>0){ e.dodgeT-=dt; epos.add(e.dodgeV.clone().multiplyScalar(dt*slow)); }
+  else {
+    const mv=new THREE.Vector3();
+    if(dist>15) mv.add(to); else if(dist<9) mv.sub(to);
+    mv.add(new THREE.Vector3(-to.z,0,to.x).multiplyScalar(Math.sin(e.strafe*1.3)*.8));
+    if(mv.lengthSq()>0) epos.add(mv.normalize().multiplyScalar((6+state.arena.round*0.6)*slow*dt));
+  }
+  collide(epos,.6);
+  e.walkT+=dt*7;
+  e.legL.rotation.x=Math.sin(e.walkT)*.5; e.legR.rotation.x=-Math.sin(e.walkT)*.5;
+  e.fireCd-=dt;
+  if(e.fireCd<=0 && dist<34 && e.spawnT<=0){
+    e.fireCd=Math.max(.42, 1.0 - state.arena.round*.09);
+    const aim=playerPos.clone().add(new THREE.Vector3(0,1.3,0));
+    const muz=epos.clone().setY(1.3);
+    const vel=aim.sub(muz).normalize().multiplyScalar(24);
+    const inacc=Math.max(.15, 1.3 - state.arena.round*.12);
+    vel.x+=rand(-1,1)*inacc; vel.z+=rand(-1,1)*inacc;
+    const m=new THREE.Mesh(new THREE.SphereGeometry(.24,8,8), new THREE.MeshBasicMaterial({color:0xff5d5d}));
+    m.position.copy(muz); scene.add(m);
+    eProjectiles.push({mesh:m,vel,t:0,dmg:Math.round((13+state.arena.round*3)*DIFFS[save.diff||'medium'].dmg)});
+    sfx.shoot();
+  }
+  e.group.lookAt(playerPos.x,epos.y,playerPos.z);
+  $('arenahp').style.width=clamp(e.hp/e.maxHp*100,0,100)+'%';
+}
+function clearDuelists(){
+  for(let i=enemies.length-1;i>=0;i--){ if(enemies[i].duel){ scene.remove(enemies[i].group); enemies.splice(i,1); } }
+}
+function arenaRoundEnd(winner){
+  if(!state.arena) return;
+  if(winner==='you') state.arena.you++; else state.arena.foe++;
+  clearDuelists();
+  for(const p of eProjectiles) scene.remove(p.mesh); eProjectiles.length=0;
+  if(state.arena.you>=2 || state.arena.foe>=2){ arenaMatchEnd(state.arena.you>=2); return; }
+  state.arena.round++;
+  state.hp=state.maxHp; updateHpHUD();
+  banner(winner==='you'?`ROUND WON  ${state.arena.you}–${state.arena.foe}`:`ROUND LOST  ${state.arena.you}–${state.arena.foe}`,
+    'Next round in 2s…', 2400);
+  state.shake=.3;
+  setTimeout(()=>{ if(state.phase==='playing'&&state.mode==='arena') spawnDuelist(); }, 1800);
+}
+function arenaMatchEnd(win){
+  if(state.arena) state.arena.active=false;
+  $('arenabar').style.display='none';
+  if(win){
+    const crys=400+bestOverall()*20;
+    addCrystals(crys); save.tokens=(save.tokens||0)+3; save.arenaWins=(save.arenaWins||0)+1;
+    updateTokenHUD(); saveGame();
+    state.phase='victory';
+    $('victorysub').textContent='🤺 ARENA CHAMPION!';
+    $('victorystats').innerHTML=`You won the duel <b>${state.arena.you}–${state.arena.foe}</b>!<br>`+
+      `+✦${crys} · +🎖3<br>Career arena wins: <b style="color:#ffd54f">${save.arenaWins}</b>`;
+    $('victory').style.display='flex';
+  } else {
+    state.phase='dead'; saveGame();
+    $('deathstats').innerHTML=`🤺 Defeated in the arena <b>${state.arena.you}–${state.arena.foe}</b>.<br>`+
+      `<span style="color:#9ff3ff">Train up and rematch — your gear carries over.</span>`;
+    $('death').style.display='flex';
+  }
 }
 
 /* ---------------- MAIN LOOP ---------------- */
@@ -2181,11 +2443,16 @@ function loop(now){
   player.rotation.x = state.rollT>0 ? -(1-state.rollT/.32)*Math.PI*2 : 0;   // roll flip
   armR.rotation.x += ((state.armSwingT>0?-1.5:0)-armR.rotation.x)*Math.min(1,dt*22); // punch swing
   if(state.kickSwingT>0) legR.rotation.x=-1.7;                              // kick extends right leg
-  for(let i=fxRings.length-1;i>=0;i--){                                     // sakura burst nova ring
+  for(let i=fxRings.length-1;i>=0;i--){                                     // nova rings + death poofs
     const r=fxRings[i]; r.t+=dt;
-    r.mesh.scale.setScalar(1+r.t*22);
-    r.mesh.material.opacity=Math.max(0,.85-r.t*1.7);
-    if(r.t>.5){ scene.remove(r.mesh); r.mesh.geometry.dispose(); fxRings.splice(i,1); }
+    const rate=r.rate||22, life=r.life||.5;
+    r.mesh.scale.setScalar(1+r.t*rate);
+    r.mesh.material.opacity=Math.max(0,.85*(1-r.t/life));
+    if(r.t>life){ scene.remove(r.mesh); r.mesh.geometry.dispose(); fxRings.splice(i,1); }
+  }
+  // idle breathing — gentle bob when standing still (third-person only)
+  if(state.view==='tp'){
+    player.position.y = (state.moving||state.rollT>0) ? 0 : Math.sin(now*0.0026)*0.03;
   }
   if(state.view==='fp'){
     player.visible=false;
@@ -2205,6 +2472,13 @@ function loop(now){
     const lookAt=playerPos.clone().add(new THREE.Vector3(0,1.5,0)).add(forwardVec().multiplyScalar(3));
     camera.lookAt(lookAt);
   }
+  /* --- camera shake (hits, finishers) --- */
+  if(state.shake>0.005){
+    camera.position.x+=rand(-1,1)*state.shake;
+    camera.position.y+=rand(-1,1)*state.shake;
+    camera.position.z+=rand(-1,1)*state.shake;
+    state.shake*=Math.max(0,1-dt*7);
+  } else state.shake=0;
   /* --- scope zoom (hold I) --- */
   const wq=equipped();
   const targetFov = (state.scoped && state.phase==='playing' && wq && !wq.melee)
@@ -2345,7 +2619,7 @@ function simulate(dt, now){
     }
     state.chestT=(state.chestT??3)-dt;
     if(chests.length<4 && state.chestT<=0){ state.chestT=12; spawnChest(); }
-    chests.forEach(c=>c.group.rotation.y+=dt*.8);
+    chests.forEach(c=>{ c.group.rotation.y+=dt*.8; c.group.position.y=0.15+Math.sin(now*0.003+c.group.position.x)*0.12; });
     $('hint').textContent = nearChest() ? '✨ ✨ PRESS X TO OPEN THE CHEST ✨ ✨' : HINT_DEFAULT;
     updateWaveHUD();
   } else {
@@ -2368,6 +2642,7 @@ function simulate(dt, now){
   for(let ei=enemies.length-1;ei>=0;ei--){
     const e=enemies[ei];
     const epos=e.group.position;
+    if(e.duel){ updateDuelist(e,dt,now); continue; }
     let tgtPos=ppos, tgtBot=null;
     let bestD=Math.hypot(ppos.x-epos.x, ppos.z-epos.z);
     for(const b of bots){
@@ -2383,6 +2658,7 @@ function simulate(dt, now){
     if(e.flashT>0){ e.flashT-=dt; e.mat.emissive=new THREE.Color(0xffffff); }
     else e.mat.emissive=new THREE.Color(e.telT>0?0xcc7700:e.burnT>0?0x993300:e.golden?0x665500:e.enraged?0x771111:0x000000);
     e.bob+=dt*4;
+    if(e.spawnT>0){ e.spawnT-=dt; e.group.scale.copy(e.scaleVec).multiplyScalar(.25+.75*clamp(1-e.spawnT/.3,0,1)); }
     // melee knockback + stun + launch
     if(e.kb.lengthSq()>0.01){
       epos.add(e.kb.clone().multiplyScalar(dt));
@@ -2478,7 +2754,7 @@ function simulate(dt, now){
       }
     } else {
       epos.add(toP.multiplyScalar(spd*dt));
-      if(e.type==='slime') e.group.scale.y=1+Math.sin(e.bob*2)*.12;
+      if(e.type==='slime'&&(e.spawnT||0)<=0) e.group.scale.y=e.scaleVec.y*(1+Math.sin(e.bob*2)*.12);
       collide(epos, .8);
       e.attackCd=Math.max(0,e.attackCd-dt);
       if(dist<e.reach+0.9&&e.attackCd<=0){
