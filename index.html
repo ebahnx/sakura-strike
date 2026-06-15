@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <title>SAKURA STRIKE — Anime Monster Siege</title>
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
 <link href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@500;600;700&family=Bangers&display=swap" rel="stylesheet">
 <style>
   :root{
@@ -11,9 +11,59 @@
     --c-common:#b0bec5; --c-uncommon:#66bb6a; --c-rare:#42a5f5; --c-epic:#ab47bc; --c-legendary:#ffb300;
   }
   *{margin:0;padding:0;box-sizing:border-box;user-select:none}
-  html,body{width:100%;height:100%;overflow:hidden;background:#1a1025;font-family:'Rajdhani',sans-serif;color:#fff}
-  #game{position:absolute;inset:0}
+  html,body{width:100%;height:100%;overflow:hidden;background:#1a1025;font-family:'Rajdhani',sans-serif;color:#fff;overscroll-behavior:none}
+  #game{position:absolute;inset:0;touch-action:none}
   canvas{display:block}
+
+  /* ---------- TOUCH CONTROLS (shown on phones/tablets) ---------- */
+  #lookzone{position:absolute;inset:0;z-index:8;touch-action:none;display:none}
+  #touchui{position:absolute;inset:0;z-index:9;pointer-events:none;display:none}
+  body.touch #touchui.on{display:block}
+  body.touch #lookzone.on{display:block}
+  #joybase{position:absolute;left:26px;bottom:34px;width:128px;height:128px;border-radius:50%;
+    background:rgba(255,255,255,.08);border:2px solid rgba(255,255,255,.25);pointer-events:auto;touch-action:none}
+  #joyknob{position:absolute;left:50%;top:50%;width:56px;height:56px;margin:-28px 0 0 -28px;border-radius:50%;
+    background:rgba(255,111,174,.6);border:2px solid rgba(255,255,255,.5);box-shadow:0 0 12px rgba(255,111,174,.6)}
+  .tbtn{position:absolute;pointer-events:auto;touch-action:none;border-radius:50%;display:flex;align-items:center;justify-content:center;
+    font-weight:700;color:#fff;background:rgba(10,5,25,.55);border:2px solid rgba(255,255,255,.3);text-shadow:0 0 4px #000;
+    -webkit-user-select:none;user-select:none;font-size:13px;text-align:center;line-height:1.05}
+  .tbtn:active{background:rgba(255,111,174,.5)}
+  .tbtn .em{font-size:22px}
+  /* touch button positions — clean bottom bands, no overlap (phone & tablet) */
+  #tb-fire{right:18px;bottom:106px;width:96px;height:96px;font-size:16px;background:rgba(215,88,86,.5);border-color:rgba(255,150,150,.6)}
+  #tb-scope{right:124px;bottom:122px;width:60px;height:60px}
+  #tb-reload{right:30px;bottom:210px;width:58px;height:58px}
+  #tb-view{right:98px;bottom:210px;width:58px;height:58px;font-size:11px}
+  #tb-menu{top:14px;right:14px;width:52px;height:52px;font-size:24px}
+  #tb-shop{top:74px;right:14px;width:52px;height:52px}
+  #tb-inv{top:134px;right:14px;width:52px;height:52px}
+  #tb-dodge{display:none}
+
+  @media (max-width:820px){
+    .panel{padding:18px 16px !important;max-height:94vh}
+    h1{font-size:42px}
+    h2{font-size:26px}
+    .controls{font-size:14px;grid-template-columns:auto auto}
+    .sub{font-size:14px}
+    #shop .cases,#dailylist{grid-template-columns:repeat(2,1fr) !important}
+    #skinlist{grid-template-columns:repeat(3,1fr) !important}
+    #maplist{grid-template-columns:repeat(2,1fr) !important}
+    #modelist{grid-template-columns:repeat(2,1fr) !important}
+  }
+  /* touch HUD: skill chips become the ability buttons; hotbar & joystick fit the width */
+  body.touch #joybase{left:18px;bottom:106px;width:112px;height:112px}
+  body.touch #skillbar{left:50%;right:auto;transform:translateX(-50%);bottom:44px;gap:5px;width:100%;max-width:540px;justify-content:center;flex-wrap:nowrap}
+  body.touch .skill{font-size:12px;padding:7px 5px;min-width:48px;text-align:center;pointer-events:auto;cursor:pointer}
+  body.touch #hotbar{bottom:4px;gap:3px}
+  body.touch .hslot{width:31px;height:31px;font-size:15px}
+  body.touch .hslot .hkey{font-size:8px}
+  body.touch #hint{display:none}
+  body.touch #currency,body.touch #tokens{font-size:18px;padding:4px 10px}
+  body.touch #vitals{top:116px;bottom:auto;left:14px;min-width:200px}
+  body.touch #hpbar{width:200px}
+  body.touch #killfeed{top:200px;right:12px}
+  body.touch .kfitem{font-size:12px;padding:2px 7px}
+  .taprow{cursor:pointer}
 
   /* ---------- HUD ---------- */
   .hud{position:absolute;pointer-events:none;z-index:10}
@@ -142,11 +192,25 @@
 <div class="hud" id="finisher"></div>
 <div class="hud" id="hint">WASD · ◀▶ turn · J/F fire · E scope · V view · K/L combos · Q/I/C abilities · SPACE roll · R reload · B shop · T inventory · O settings · ESC pause</div>
 
+<!-- TOUCH CONTROLS -->
+<div id="lookzone"></div>
+<div id="touchui">
+  <div id="joybase"><div id="joyknob"></div></div>
+  <div class="tbtn" id="tb-fire"><span>FIRE</span></div>
+  <div class="tbtn" id="tb-scope"><span class="em">🔭</span></div>
+  <div class="tbtn" id="tb-reload"><span class="em">🔄</span></div>
+  <div class="tbtn" id="tb-view">👁 VIEW</div>
+  <div class="tbtn" id="tb-menu">≡</div>
+  <div class="tbtn" id="tb-shop"><span class="em">🛒</span></div>
+  <div class="tbtn" id="tb-inv"><span class="em">🎒</span></div>
+</div>
+
 <!-- START SCREEN -->
 <div class="overlay" id="startscreen">
   <div class="panel center">
     <h1>SAKURA STRIKE</h1>
-    <div class="sub">Anime Monster Siege · Defend the shrine from the yokai horde · 100% keyboard</div>
+    <div class="sub">Anime Monster Siege · Defend the shrine from the yokai horde · keyboard or touch</div>
+    <div class="sub" id="touchnote" style="display:none;color:#9ff3ff;font-size:14px">📱 Touch detected — on-screen joystick + buttons load when you start. Drag the screen to look around.</div>
     <div class="controls">
       <b>WASD</b><span>Move (A/D strafe)</span>
       <b>◀ ▶ arrows</b><span>Turn your hero</span>
@@ -1845,15 +1909,28 @@ function renderStash(){
   $('loadoutlist').innerHTML='<b style="color:#9ff3ff">LOADOUT:</b><br>'+state.inventory.map((w,i)=>
     `${i===state.equipped?'▶':'·'} ${i+1} ${wlabel(w)}${i===state.equipped?' <b style="color:#ffd54f">EQUIPPED</b>':''}`).join('<br>');
   const keysList=['1','2','3','4','5','6','7','8','9','0'];
-  $('stashlist').innerHTML='<b style="color:#ffb7d5">STASH'+((save.stash||[]).length?'</b> (swap with equipped):<br>':'</b> — empty. Extra case weapons land here instead of being sold.')+
-    (save.stash||[]).slice(0,10).map((w,i)=>`<span class="keycap">${keysList[i]}</span> ${wlabel(w)}`).join('<br>');
+  const sl=$('stashlist');
+  sl.innerHTML='<b style="color:#ffb7d5">STASH'+((save.stash||[]).length?'</b> (tap or press key to swap with equipped):<br>':'</b> — empty. Extra case weapons land here instead of being sold.');
+  (save.stash||[]).slice(0,10).forEach((w,i)=>{
+    const row=document.createElement('div'); row.className='taprow';
+    row.innerHTML=`<span class="keycap">${keysList[i]}</span> ${wlabel(w)}`;
+    row.onclick=()=>swapStash(i);
+    sl.appendChild(row);
+  });
   const ao=save.abilityOwned||['nova','dash'];
+  const cycleBtn=(slot)=>`<span class="keycap taprow" data-cyc="${slot}" style="cursor:pointer">cycle ▸</span>`;
   $('stuffinv').innerHTML=
-    `<b>ABILITIES:</b> <span class="keycap">Q</span> ${ABILITY_DEFS[save.abilQ||'nova'].icon} ${ABILITY_DEFS[save.abilQ||'nova'].name} · <span class="keycap">I</span> ${ABILITY_DEFS[save.abilE||'dash'].icon} ${ABILITY_DEFS[save.abilE||'dash'].name} — press Q/I here to cycle owned (${ao.length}/7)<br>`+
+    `<b>ABILITIES:</b> <span class="keycap">Q</span> ${ABILITY_DEFS[save.abilQ||'nova'].icon} ${ABILITY_DEFS[save.abilQ||'nova'].name} ${cycleBtn('abilQ')} · <span class="keycap">I</span> ${ABILITY_DEFS[save.abilE||'dash'].icon} ${ABILITY_DEFS[save.abilE||'dash'].name} ${cycleBtn('abilE')} <small>(${ao.length}/7)</small><br>`+
     `<b>SKINS:</b> ${(save.skins||[]).map(id=>SKINS[id].icon+' '+SKINS[id].name+(save.skin===id?' ✓':'')).join(' · ')}<br>`+
     `<b>DESIGNS:</b> ${(save.designs||[]).length?(save.designs||[]).join(' · ')+(save.design?' (active: '+save.design.name+')':''):'none yet — open Treasure Cases'}<br>`+
     `<b>PERKS:</b> ${(save.perks||[]).length?(save.perks||[]).map(id=>PERKS[id].icon+' '+PERKS[id].name).join(' · '):'none yet'}<br>`+
     `<b>DIFFICULTY:</b> ${DIFFS[save.diff||'medium'].label}`;
+  $('stuffinv').querySelectorAll('[data-cyc]').forEach(el=>el.onclick=()=>{
+    const slot=el.dataset.cyc, owned=save.abilityOwned||['nova','dash'];
+    save[slot]=owned[(owned.indexOf(save[slot])+1)%owned.length];
+    try{ localStorage.setItem(SAVE_KEY, JSON.stringify(save)); }catch(e){}
+    sfx.tick(); renderStash();
+  });
 }
 function openStash(){
   if(state.phase!=='playing') return;
@@ -1886,7 +1963,10 @@ let settingsFrom='start';
 function renderSettings(){
   const list=$('setlist'); list.innerHTML='';
   Object.entries(SETTING_OPTS).forEach(([k,o],i)=>{
-    list.innerHTML+=`<div><span class="keycap">${i+1}</span> ${o.label}: <b style="color:#9ff3ff">${o.fmt(setting(k))}</b></div>`;
+    const row=document.createElement('div'); row.className='taprow';
+    row.innerHTML=`<span class="keycap">${i+1}</span> ${o.label}: <b style="color:#9ff3ff">${o.fmt(setting(k))}</b> <span style="opacity:.5">▸ tap</span>`;
+    row.onclick=()=>cycleSetting(i);
+    list.appendChild(row);
   });
 }
 function cycleSetting(i){
@@ -1922,7 +2002,8 @@ $('closeshop').onclick=closeShop;
 
 /* ---------------- INPUT (keyboard only) ---------------- */
 const FIRE_KEYS=['KeyJ','KeyF'];
-function firing(){ return FIRE_KEYS.some(k=>keys[k]); }
+const touch={fire:false, scope:false, mx:0, my:0, mag:0};
+function firing(){ return FIRE_KEYS.some(k=>keys[k]) || touch.fire; }
 addEventListener('keydown',e=>{
   if(['ArrowUp','ArrowDown','ArrowLeft','ArrowRight','Space'].includes(e.code)) e.preventDefault();
   const first=!keys[e.code];
@@ -2013,6 +2094,66 @@ addEventListener('keydown',e=>{
   if(first&&FIRE_KEYS.includes(e.code)) shoot();
 });
 addEventListener('keyup',e=>keys[e.code]=false);
+
+/* ---------------- TOUCH CONTROLS (phones & tablets) ---------------- */
+const IS_TOUCH = ('ontouchstart' in window) || navigator.maxTouchPoints>0
+  || matchMedia('(pointer:coarse)').matches || location.search.includes('touch=1');
+if(IS_TOUCH){ document.body.classList.add('touch'); const tn=$('touchnote'); if(tn) tn.style.display='block'; }
+function tap(el, fn, release){
+  if(!el) return;
+  el.addEventListener('touchstart', e=>{ e.preventDefault(); e.stopPropagation(); fn(); }, {passive:false});
+  el.addEventListener('mousedown', e=>{ e.preventDefault(); e.stopPropagation(); fn(); });
+  if(release){
+    const r=e=>{ e.preventDefault(); release(); };
+    el.addEventListener('touchend', r, {passive:false});
+    el.addEventListener('touchcancel', r, {passive:false});
+    el.addEventListener('mouseup', r);
+    el.addEventListener('mouseleave', ()=>release());
+  }
+}
+if(IS_TOUCH){
+  // action buttons → reuse existing functions
+  tap($('tb-fire'), ()=>{ touch.fire=true; const w=equipped(); if(w&&!w.auto) shoot(); }, ()=>touch.fire=false);
+  tap($('tb-scope'), ()=>touch.scope=true, ()=>touch.scope=false);
+  tap($('tb-dodge'), ()=>dodgeRoll());
+  tap($('tb-reload'), ()=>{ state.reloading>0?activeReload():tryReload(); });
+  tap($('tb-view'), ()=>{ state.view=state.view==='tp'?'fp':'tp'; if(fpGun) fpGun.visible=state.view==='fp'; });
+  tap($('tb-menu'), ()=>togglePause());
+  tap($('tb-shop'), ()=>{ if(state.phase==='playing') openShop(); else if(state.phase==='shop') closeShop(); });
+  tap($('tb-inv'), ()=>{ if(state.phase==='playing') openStash(); else if(state.phase==='stash') closeStash(); });
+  // reuse the skill chips as combat buttons
+  tap($('sk-punch'), ()=>meleeInput('K'));
+  tap($('sk-kick'),  ()=>meleeInput('L'));
+  tap($('sk-roll'),  ()=>dodgeRoll());
+  tap($('sk-q'),     ()=>castAbility('q'));
+  tap($('sk-e'),     ()=>castAbility('e'));
+  tap($('sk-ult'),   ()=>foxBarrage());
+
+  // virtual joystick (left) — analog move vector
+  const base=$('joybase'), knob=$('joyknob'); let joyId=null, cx=0, cy=0;
+  const R=52;
+  base.addEventListener('touchstart', e=>{ e.preventDefault(); const t=e.changedTouches[0]; joyId=t.identifier;
+    const b=base.getBoundingClientRect(); cx=b.left+b.width/2; cy=b.top+b.height/2; moveJoy(t.clientX,t.clientY); }, {passive:false});
+  base.addEventListener('touchmove', e=>{ e.preventDefault(); for(const t of e.changedTouches) if(t.identifier===joyId) moveJoy(t.clientX,t.clientY); }, {passive:false});
+  const endJoy=e=>{ for(const t of e.changedTouches) if(t.identifier===joyId){ joyId=null; touch.mx=touch.my=touch.mag=0; knob.style.transform='translate(0,0)'; } };
+  base.addEventListener('touchend', endJoy, {passive:false});
+  base.addEventListener('touchcancel', endJoy, {passive:false});
+  function moveJoy(x,y){ let dx=x-cx, dy=y-cy; const d=Math.hypot(dx,dy)||1; const cl=Math.min(d,R);
+    dx=dx/d*cl; dy=dy/d*cl; knob.style.transform=`translate(${dx}px,${dy}px)`;
+    touch.mx=dx/R; touch.my=-dy/R; touch.mag=cl/R; }
+
+  // look drag (anywhere not on a control) → turn & pitch
+  const lz=$('lookzone'); let lookId=null, lx=0, ly=0;
+  lz.addEventListener('touchstart', e=>{ const t=e.changedTouches[0]; if(lookId===null){ lookId=t.identifier; lx=t.clientX; ly=t.clientY; } }, {passive:false});
+  lz.addEventListener('touchmove', e=>{ e.preventDefault(); for(const t of e.changedTouches) if(t.identifier===lookId){
+    const sens=0.0052*setting('sens');
+    state.yaw -= (t.clientX-lx)*sens;
+    state.camPitch = clamp(state.camPitch + (t.clientY-ly)*sens, -0.35, 0.85);
+    lx=t.clientX; ly=t.clientY; } }, {passive:false});
+  const endLook=e=>{ for(const t of e.changedTouches) if(t.identifier===lookId) lookId=null; };
+  lz.addEventListener('touchend', endLook, {passive:false});
+  lz.addEventListener('touchcancel', endLook, {passive:false});
+}
 function togglePause(){
   if(state.phase==='playing'){ state.phase='paused'; $('resume').style.display='flex'; }
   else if(state.phase==='paused'){ state.phase='playing'; $('resume').style.display='none'; }
@@ -2107,6 +2248,17 @@ function startGame(){
   if(state.mode==='streets') state.map='city';       // scavenge happens in the streets
   if(state.mode==='special') state.special=todaySpecial();
   buildWorld(state.map);
+  // pick a clear spawn (not inside cover or lava) so the camera isn't blocked
+  state.yaw=0; state.camPitch=0.15;
+  playerPos.set(0,0,18);
+  for(let tries=0;tries<48;tries++){
+    let bad=false;
+    for(const o of obstacles){ if(playerPos.x>o.minX-1.2&&playerPos.x<o.maxX+1.2&&playerPos.z>o.minZ-1.2&&playerPos.z<o.maxZ+1.2){bad=true;break;} }
+    if(!bad) for(const lp of lavaPools){ if(Math.hypot(playerPos.x-lp.x,playerPos.z-lp.z)<lp.r+2){bad=true;break;} }
+    if(!bad) break;
+    const a=tries*2.4, rad=5+tries*0.9;
+    playerPos.set(clamp(Math.cos(a)*rad,-ARENA+4,ARENA-4),0,clamp(Math.sin(a)*rad,-ARENA+4,ARENA-4));
+  }
   if(save.inventory && save.inventory.length){       // continue: arsenal + crystals carry over
     state.inventory=save.inventory.map(w=>Object.assign({},w));
     state.inventory.forEach(w=>{ if(!w.item){ w.mag=w.magSize; w.reserve=w.magSize*4; } });  // fresh ammo each run
@@ -2496,12 +2648,18 @@ function loop(now){
   }
   if(gunModel) gunModel.position.z += (0-gunModel.position.z)*Math.min(1,dt*10);
   if(fpGun) fpGun.position.z += (-.6-fpGun.position.z)*Math.min(1,dt*10);
+  if(IS_TOUCH){
+    const show=state.phase==='playing';
+    $('touchui').classList.toggle('on',show);
+    $('lookzone').classList.toggle('on',show);
+    if(!show){ touch.fire=touch.scope=false; touch.mx=touch.my=touch.mag=0; }
+  }
   renderer.render(scene,camera);
 }
 function simulate(dt, now){
   /* --- player movement --- */
   const speed=((keys['ShiftLeft']||keys['ShiftRight'])?11.5:7.5)*(hasPerk('swift')?1.08:1);
-  state.scoped=!!keys['KeyE'];
+  state.scoped=!!keys['KeyE'] || touch.scope;
   const sens=setting('sens');
   const turnSpeed=(state.scoped?1.0:firing()?1.7:3.2)*sens;   // scope = slow precise tracking; firing steadies too
   if(keys['ArrowLeft'])  state.yaw+=turnSpeed*dt;
@@ -2513,9 +2671,10 @@ function simulate(dt, now){
   const move=new THREE.Vector3();
   if(keys['KeyW']) move.add(f); if(keys['KeyS']) move.sub(f);
   if(keys['KeyD']) move.add(r); if(keys['KeyA']) move.sub(r);
-  const moving=move.lengthSq()>0;
+  if(touch.mag>0.12){ move.add(f.clone().multiplyScalar(touch.my)); move.add(r.clone().multiplyScalar(touch.mx)); }  // joystick
+  const moving=move.lengthSq()>0.0001;
   state.moving=moving||state.rollT>0;
-  if(moving) move.normalize().multiplyScalar(speed*dt);
+  if(moving){ if(move.length()>1) move.normalize(); move.multiplyScalar(speed*dt); }   // analog magnitude on joystick
   // spirit slash dash > dodge roll > normal movement
   if(state.dashT>0){
     state.dashT-=dt;
